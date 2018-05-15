@@ -96,29 +96,33 @@ all.data <- read_csv("code/datasync/fao-sau-combined-filtered-catchtype.csv",gue
 combined <- all.data %>%
   filter(source == 'fao' | reporting_status == 'Unreported') %>%  # ignore SAU 'reported' data
   group_by(year,common_name,scientific_name,country,fao_area,catch_type,source) %>%
-  summarise(total.catch=sum(catch)) %>% # aggregate (sum) catch on the above grouping variables
+  summarise(total_catch=sum(catch)) %>% # aggregate (sum) catch on the above grouping variables
   ungroup() %>%
   arrange(year,common_name,country,fao_area,source) 
 
-# here, we create the 'fao+sau' category by summing the fao (reported) data and
-# the sau (unreported) data. then we replace the 'sau' values with this summed
-# value. This spits out a warning about combining factors with different levels,
-# so we suppress it.
-suppressWarnings(
-  catch_data <- combined %>%
+# recalculate catch data by data source
+# for source='fao', we retain the original fao data
+# for source='sau', catch data becomes sum of fao + sau (unreported) data
+catch_data <- bind_rows(
+  sau=combined %>%
     group_by(year,common_name,scientific_name,catch_type,country) %>%
-    summarise(total.catch=sum(total.catch)) %>% # aggregate all catch data across both fao and sau
-    ungroup() %>%
-    mutate(source="sau") %>% # call this the new sau data
-    bind_rows(combined %>%  # add back in the original fao data
-                filter(source=='fao') %>%
-                group_by(year,common_name,scientific_name,catch_type,country,source) %>%
-                summarise(total.catch=sum(total.catch))) %>%
-    arrange(year,common_name,country,source) %>%
-    mutate_if(is.character,as.factor) %>%
-    mutate(catch_type=factor(catch_type,levels=rev(levels(catch_type))))
-)
-
+    summarise(total_catch=sum(total_catch)) %>% 
+    ungroup(), #%>%
+    #mutate(source="sau"),
+  fao=combined %>%  
+    filter(source=='fao') %>%
+    group_by(year,common_name,scientific_name,catch_type,country) %>%
+    summarise(total_catch=sum(total_catch)),
+  .id="source"
+) %>%
+  # push 'source' column to the last position:
+  select(-source,source) %>% 
+  # sort by year, common name, country, and data source:
+  arrange(year,common_name,country,source) %>% 
+  # make character fields into factor fields:
+  mutate_if(is.character,as.factor) %>% 
+  # reorder catch type factor levels so 'landings' appears before 'discards':
+  mutate(catch_type=factor(catch_type,levels=rev(levels(catch_type)))) 
 
 # create consistent color scale for countries across graphs
 pal_countries <- pal_269[1:nlevels(combined$country)]
@@ -134,7 +138,7 @@ names(pal_comm) <- levels(combined$common_name)
 # create a labeller function to display source categories better
 source_labeller = as_labeller(c('fao' = 'Total Catch (FAO)', 'sau' = 'Total Catch (SAU+FAO)'))
 # this function chooses the line size based on the data source
-size_chooser <- function(x) { ifelse(x=='fao',2,1) }
+size_chooser <- function(x) { ifelse(x=='fao',1.5,1) }
 
 
 ##### Step plots ######
@@ -146,12 +150,12 @@ size_chooser <- function(x) { ifelse(x=='fao',2,1) }
 # summarize global catch totals per year (for all countries) for step plots
 global.catch.step <- catch_data %>% 
   group_by(year,common_name,scientific_name,source) %>% 
-  summarise(gross.catch=sum(total.catch)) %>% 
+  summarise(gross_catch=sum(total_catch)) %>% 
   ungroup()
 
 step.plotz <- pmap(list(unique(as.character(global.catch.step$common_name)),unique(as.character(global.catch.step$scientific_name))),function(taxon,sciname) {
   plotdata <- global.catch.step %>% filter(common_name == taxon)
-  plotr <- ggplot(plotdata, aes(x=year,y=gross.catch,color=source)) +
+  plotr <- ggplot(plotdata, aes(x=year,y=gross_catch,color=source)) +
     geom_step(size=size_chooser(plotdata$source)) +
     theme_classic() +
     #theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank()) +
@@ -179,7 +183,7 @@ step.plotz <- pmap(list(unique(as.character(global.catch.step$common_name)),uniq
 # plot catch by country for each species. in RStudio you can cycle through the different plots
 # country.plotz will be a list of each plot object
 country.plotz <- pmap(list(unique(as.character(catch_data$common_name)),unique(as.character(catch_data$scientific_name))),function(taxon,sciname) {
-  plotr <- ggplot(catch_data %>% filter(common_name == taxon), aes(x=year,y=total.catch,fill=country)) +
+  plotr <- ggplot(catch_data %>% filter(common_name == taxon), aes(x=year,y=total_catch,fill=country)) +
     geom_col(color="black") +
     theme_minimal() +
     theme(panel.border = element_rect(colour = "black",fill = NA)) +
@@ -209,11 +213,11 @@ country.plotz <- pmap(list(unique(as.character(catch_data$common_name)),unique(a
 # aggregate global catch, retaining catch_type
 global.catch.bar <- catch_data %>% 
   group_by(year,common_name,scientific_name,catch_type,source) %>% 
-  summarise(gross.catch=sum(total.catch)) %>% 
+  summarise(gross_catch=sum(total_catch)) %>% 
   ungroup()
 
 (global.spp.plotz <- 
-  ggplot(global.catch.bar, aes(x=year,y=gross.catch,fill=common_name)) +
+  ggplot(global.catch.bar, aes(x=year,y=gross_catch,fill=common_name)) +
     geom_col(color="black") +
     theme_minimal() +
     scale_y_continuous(name="Total Catch",labels=comma) + 
