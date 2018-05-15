@@ -12,12 +12,14 @@ species_translate <- read_csv("datasync/species-translate.csv.gz")
 countries <- read_csv("datasync/ref_country.csv.gz")
 
 ## Read entire FAO database (every entry for production type 'capture')
-fao <- read_csv("datasync/tsd_global_production_long.csv.gz",guess_max = 100000) %>% 
-  filter(scientific_name %in% species_translate$scientific_name_fao) %>%
+fao.all <- read_csv("datasync/tsd_global_production_long.csv.gz",guess_max = 100000) %>% 
   mutate(source="fao") %>% # designate source as FAO
   rename(fao_area=fishing_area) %>%
   select(country,country_iso,country_un,fao_area,year,common_name,scientific_name,reporting_status,catch,source) %>%
+  mutate(catch_type="Landings") %>%
   arrange(year,country,common_name) # sort table
+
+fao <- fao.all %>% filter(scientific_name %in% species_translate$scientific_name_fao)
 
 ## Read, calculate, and format SAU dataset
 
@@ -29,17 +31,21 @@ sau <- read_csv("datasync/Mykle_v2_v47.csv.gz") %>%
   rename(country=fishing_entity) %>%
   rename(country_un=un_code) %>%
   rename(country_iso=iso_3_code) %>%
-  select(country,country_iso,country_un,fao_area,year,common_name_fao,scientific_name_fao,reporting_status,source,gear,tonnes) %>%
+  select(country,country_iso,country_un,fao_area,year,common_name_fao,scientific_name_fao,reporting_status,catch_type,source,gear,tonnes) %>%
   rename(common_name=common_name_fao) %>%
   rename(scientific_name=scientific_name_fao) %>%
-  group_by(country,country_iso,country_un,fao_area,year,common_name,scientific_name,reporting_status,source) %>%
+  group_by(country,country_iso,country_un,fao_area,year,common_name,scientific_name,reporting_status,catch_type,source) %>%
   summarise(catch=sum(tonnes)) %>% # sum catch across gear types
   ungroup() %>%
-  select(country,country_iso,country_un,fao_area,year,common_name,scientific_name,reporting_status,catch,source) %>%
+  select(country,country_iso,country_un,fao_area,year,common_name,scientific_name,reporting_status,catch_type,catch,source) %>%
   arrange(year,country,common_name) # sort table
 
 
-all_data <- union(fao,sau) %>%
-  arrange(source,year,country,common_name,reporting_status)
+all_data_filtered <- union(fao,sau) %>%
+  arrange(source,year,country,common_name,catch_type,reporting_status)
 
-write_excel_csv(all_data,"datasync/fao-sau-combined.csv",col_names = T)
+all_data <- union(fao.all,sau) %>%
+  arrange(source,year,country,common_name,catch_type,reporting_status)
+
+write_excel_csv(all_data_filtered,"datasync/fao-sau-combined-filtered.csv",col_names = T)
+write_excel_csv(all_data,"datasync/fao-sau-combined-all.csv",col_names = T)
