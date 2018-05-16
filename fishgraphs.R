@@ -86,32 +86,29 @@ my.species <- read.csv("data/species.csv") %>% filter(owner=='mykle') %>% drople
 
 
 ##### LOAD DATA ########
-all.data <- read_csv("code/datasync/fao-sau-combined-filtered-catchtype.csv",guess_max = 100000) %>%
-  mutate_if(is.character,as.factor) %>% # make factors of character fields
-  filter(scientific_name %in% my.species$scientific_name) # subset our species list
-# notably, we do not drop unused factor levels, so levels(all.data$scientific_name) will 
+# initial dataset load and filtering:
+# subset on requested species list and remove SAU 'unreported' data points
+all_data <- read_csv("code/datasync/fao-sau-combined-filtered-catchtype.csv",guess_max = 100000) %>%
+  filter(scientific_name %in% my.species$scientific_name) %>% 
+  filter(source == 'fao' | reporting_status == 'Unreported') %>% 
+  rename(total_catch = catch) %>%
+  mutate_if(is.character,as.factor) %>% 
+  arrange(year,common_name,country,fao_area,source)
+# notably, we don't drop unused factor levels, so levels(all_data$scientific_name) will 
 # list all available species (before filtering). similarly, for countries and common names
-
-# aggretate and summarize dataset
-combined <- all.data %>%
-  filter(source == 'fao' | reporting_status == 'Unreported') %>%  # ignore SAU 'reported' data
-  group_by(year,common_name,scientific_name,country,fao_area,catch_type,source) %>%
-  summarise(total_catch=sum(catch)) %>% # aggregate (sum) catch on the above grouping variables
-  ungroup() %>%
-  arrange(year,common_name,country,fao_area,source) 
 
 # recalculate catch data by data source
 # for source='fao', we retain the original fao data
-# for source='sau', catch data becomes sum of fao + sau (unreported) data
+# for source='sau', we sum fao + sau (unreported) data
 catch_data <- bind_rows(
-  sau=combined %>%
-    group_by(year,common_name,scientific_name,catch_type,country) %>%
+  sau=all_data %>%
+    group_by(year,common_name,scientific_name,catch_type,country,fao_area) %>%
     summarise(total_catch=sum(total_catch)) %>% 
     ungroup(), #%>%
     #mutate(source="sau"),
-  fao=combined %>%  
+  fao=all_data %>%  
     filter(source=='fao') %>%
-    group_by(year,common_name,scientific_name,catch_type,country) %>%
+    group_by(year,common_name,scientific_name,catch_type,country,fao_area) %>%
     summarise(total_catch=sum(total_catch)),
   .id="source"
 ) %>%
@@ -124,15 +121,15 @@ catch_data <- bind_rows(
   # reorder catch type factor levels so 'landings' appears before 'discards':
   mutate(catch_type=factor(catch_type,levels=rev(levels(catch_type)))) 
 
-# create consistent color scale for countries across graphs
-pal_countries <- pal_269[1:nlevels(combined$country)]
-names(pal_countries) <- levels(combined$country)
-
-# create consistent color scale for species across graphs
-pal_spp <- pal_igv('default')(nlevels(combined$scientific_name)) # by scientific name
-names(pal_spp) <- levels(combined$scientific_name)
-pal_comm <- pal_igv('default')(nlevels(combined$common_name)) # by common name
-names(pal_comm) <- levels(combined$common_name)
+# Create named color palettes for color consistency in factor levels across figures
+# countries
+pal_countries <- pal_269[1:nlevels(all_data$country)]
+names(pal_countries) <- levels(all_data$country)
+# species
+pal_spp <- pal_igv('default')(nlevels(all_data$scientific_name)) # by scientific name
+names(pal_spp) <- levels(all_data$scientific_name)
+pal_comm <- pal_igv('default')(nlevels(all_data$common_name)) # by common name
+names(pal_comm) <- levels(all_data$common_name)
 
 
 # create a labeller function to display source categories better
