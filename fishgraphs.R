@@ -97,15 +97,14 @@ all_data <- read_csv("code/datasync/fao-sau-combined-filtered-catchtype.csv",gue
 # notably, we don't drop unused factor levels, so levels(all_data$scientific_name) will 
 # list all available species (before filtering). similarly, for countries and common names
 
-# recalculate catch data by data source
+# recalculate true catch data for each data source
 # for source='fao', we retain the original fao data
 # for source='sau', we sum fao + sau (unreported) data
 catch_data <- bind_rows(
   sau=all_data %>%
     group_by(year,common_name,scientific_name,catch_type,country,fao_area) %>%
     summarise(total_catch=sum(total_catch)) %>% 
-    ungroup(), #%>%
-    #mutate(source="sau"),
+    ungroup(), 
   fao=all_data %>%  
     filter(source=='fao') %>%
     group_by(year,common_name,scientific_name,catch_type,country,fao_area) %>%
@@ -113,13 +112,13 @@ catch_data <- bind_rows(
     ungroup(),
   .id="source"
 ) %>%
-  # push 'source' column to the last position:
+  # push 'source' column to the last position (bind_rows makes it be first):
   select(-source,source) %>% 
   # sort by year, common name, country, and data source:
   arrange(year,common_name,country,source) %>% 
   # make character fields into factor fields:
   mutate_if(is.character,as.factor) %>% 
-  # reorder catch type factor levels so 'landings' appears before 'discards':
+  # reorder catch type factor levels so 'landings' appears before 'discards' in figure legends:
   mutate(catch_type=factor(catch_type,levels=rev(levels(catch_type)))) 
 
 # Create named color palettes for color consistency in factor levels across figures
@@ -143,7 +142,8 @@ size_chooser <- function(x) { ifelse(x=='fao',1.5,1) }
 
 # plot step graphs for each species. I plot the FAO line a bit thicker than the
 # SAU line. This is because they overlap across a fair number of years and I
-# want them both to be visible as above, step.plotz will be a list of each plot object
+# want them both to be visible 
+# step.plotz will be a list of each plot object
 
 # summarize global catch totals per year (for all countries) for step plots
 global.catch.step <- catch_data %>% 
@@ -151,8 +151,11 @@ global.catch.step <- catch_data %>%
   summarise(gross_catch=sum(total_catch)) %>% 
   ungroup()
 
+# the pmap call walks us through each species/common name (it's like a loop, only it's a function)
 step.plotz <- pmap(list(unique(as.character(global.catch.step$common_name)),unique(as.character(global.catch.step$scientific_name))),function(taxon,sciname) {
+  # filter the catch data on this particular taxon
   plotdata <- global.catch.step %>% filter(common_name == taxon)
+  # and plot the step plot
   plotr <- ggplot(plotdata, aes(x=year,y=gross_catch,color=source)) +
     geom_step(size=size_chooser(plotdata$source)) +
     theme_classic() +
@@ -163,8 +166,8 @@ step.plotz <- pmap(list(unique(as.character(global.catch.step$common_name)),uniq
     ggtitle(substitute(a~" ("~italic(b)~")",list(a=taxon,b=sciname))) + 
     theme(legend.position = "bottom")
   cat(taxon,"\n")
-  print(plotr)
-  return(plotr)
+  print(plotr) # in RStudio, this will make the plot appear in the 'plots' pane
+  return(plotr) # add this plot to the growing list
 })
 
 # # uncomment to create a multi-page PDF with one plot on each (landscape-oriented) page
