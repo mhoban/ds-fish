@@ -109,7 +109,8 @@ catch_data <- bind_rows(
   fao=all_data %>%  
     filter(source=='fao') %>%
     group_by(year,common_name,scientific_name,catch_type,country,fao_area) %>%
-    summarise(total_catch=sum(total_catch)),
+    summarise(total_catch=sum(total_catch)) %>%
+    ungroup(),
   .id="source"
 ) %>%
   # push 'source' column to the last position:
@@ -200,6 +201,40 @@ country.plotz <- pmap(list(unique(as.character(catch_data$common_name)),unique(a
 # ### uncomment to create a multi-page PDF with one plot on each page
 # pdf("plots/country-year.pdf",paper='USr')
 # walk(country.plotz,function(plotr) {
+#   print(plotr)
+# })
+# dev.off()
+
+
+# aggregate global catch by species and fao fishing area
+global.catch.area <- catch_data %>%
+  group_by(year,common_name,scientific_name,fao_area,source) %>%
+  summarise(gross_catch=sum(total_catch)) %>%
+  ungroup()
+
+# plot catch by species for each fishing area. in RStudio you can cycle through the different plots
+# area.plotz will be a list of each plot object
+area.plotz <- map(unique(as.character(global.catch.area$fao_area)),function(fishing_area) {
+  plotr <- ggplot(global.catch.area %>% filter(fao_area == fishing_area), aes(x=year,y=gross_catch,fill=common_name)) +
+    geom_col(color="black") +
+    theme_minimal() +
+    theme(panel.border = element_rect(colour = "black",fill = NA)) +
+    scale_y_continuous(name="Total Catch",labels=comma) + 
+    scale_x_continuous(name="Year",breaks=pretty(catch_data$year,n=10)) +
+    scale_fill_manual(name="Species",values=pal_comm) + 
+    facet_wrap(~source,nrow=2,ncol=1,labeller = source_labeller) + 
+    ## uncomment the next line (and comment the previous one) to further break panels by catch type (landings/discards)
+    # facet_grid(catch_type~source,labeller=labeller(source=source_labeller)) +
+    ggtitle(fishing_area) +
+    theme(legend.position = "bottom")
+  cat(fishing_area,"\n")
+  print(plotr) # uncomment to plot in RStudio
+  return(plotr)
+})
+
+# ### uncomment to create a multi-page PDF with one plot on each page
+# pdf("plots/area-species.pdf",paper='USr')
+# walk(area.plotz,function(plotr) {
 #   print(plotr)
 # })
 # dev.off()
